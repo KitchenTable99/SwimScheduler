@@ -1,6 +1,7 @@
 # Created by Caleb Bitting
 # 02/12/2021
 
+import copy
 import datetime
 import argparse
 
@@ -125,14 +126,22 @@ class AcademicBlock(TimeBlock):
 
 class AthleticBlock(TimeBlock):
 
-	def __init__(self, name, start,  end, designation):
+	def __init__(self, name, start,  end, max_capacity, designation):
 		super().__init__(name, start,end)
 		self.swimmers = []
 		self.designation = designation
+		self.max_capacity = max_capacity
+		self.capacity = 0
 
 	# accessor methods
 	def getDesignation(self):
 		return self.designation
+
+	def getMaxCapacity(self):
+		return self.max_capacity
+
+	def getCapacity(self):
+		return self.capacity
 
 	# utility methods
 	def add(self, swimmer):
@@ -141,8 +150,17 @@ class AthleticBlock(TimeBlock):
 		Args:
 			swimmer (Swimmer): Swimmer object to add
 		'''
-		self.swimmers.append(swimmer)
-		swimmer.add(self)
+		if self.capacity < self.max_capacity:
+			self.swimmers.append(swimmer)
+			swimmer.add(self)
+			self.capacity += 1
+			return True
+		else:
+			return False
+
+	def remove(self, swimmer):
+		self.swimmers.remove(swimmer)
+		self.capacity -= 1
 
 class Swimmer:
 
@@ -159,6 +177,21 @@ class Swimmer:
 		self.practice_rankings  = {}
 		self.afternoon = False
 		self.morning = False
+		self._po_after_good = None
+		self._po_after = None
+		self._po_morn = None
+		self._po_morn_good = None
+
+	def restore(self, lst):
+		# restore the correct list based on the input parameter
+		if lst == 'po_morn':
+			self.po_morn = copy.deepcopy(self._po_morn)
+		elif lst == 'po_morn_good':
+			self.po_morn_good = copy.deepcopy(self._po_morn_good)
+		elif lst == 'po_after':
+			self.po_after = copy.deepcopy(self._po_after)
+		else:
+			self.po_after_good = copy.deepcopy(self._po_after_good)
 
 	# accessor methods
 	def getName(self):
@@ -207,6 +240,44 @@ class Swimmer:
 		for prac in practice_list:
 			pairings = [c//prac for c in self.classes]
 			self.practice_rankings[prac] = min(pairings)
+		self.sortPractices()
+
+	def unassign(self):
+		to_remove = self.practices.pop()
+		to_remove.remove(self)
+
+	def sortPractices(self):
+		# create ideal and unideal lists for each designation
+		po_morn_good = []
+		po_morn = []
+		po_after_good = []
+		po_after = []
+
+		# sort the practices by the best available
+		for prac in sorted(self.practice_rankings.keys(), key=lambda dict_prac: self.practice_rankings[dict_prac]):
+			# assign to appropriate list
+			if prac.designation == 'morning':
+				if self.practice_rankings[prac] > 0:			# all ideal and manageable practices
+					po_morn_good.append(prac)
+					po_morn.append(prac)
+				elif self.practice_rankings[prac] == 0:
+					po_morn.append(prac)						# all horrible practices 		NB: dogshit practices are ignored
+			else:
+				if self.practice_rankings[prac] > 0:
+					po_after_good.append(prac)
+					po_after.append(prac)
+				elif self.practice_rankings[prac] == 0:
+					po_after.append(prac)
+
+		# create deepcopies and assign to object
+		self.po_morn = po_morn
+		self._po_morn = copy.deepcopy(po_morn)
+		self.po_morn_good = po_morn_good
+		self._po_morn_good = copy.deepcopy(po_morn_good)
+		self.po_after = po_after
+		self._po_after =  copy.deepcopy(po_after)
+		self.po_after_good = po_after_good
+		self._po_after_good = copy.deepcopy(po_after_good)
 
 	def  __str__(self):
 		return f'{self.name} has {self.classes}'
@@ -234,9 +305,10 @@ def create_practices():
 	practice_names = ['early lift', 'late lift', 'early swim', 'mid swim', 'late swim']
 	practice_starts = [datetime.time(7), datetime.time(8), datetime.time(14, 30), datetime.time(16), datetime.time(17, 30)]
 	practice_ends = [datetime.time(8), datetime.time(9), datetime.time(16), datetime.time(17, 30), datetime.time(19)]
+	practice_capacities = [30, 30, 21, 21, 21]
 	practice_designations = ['morning', 'morning', 'afternoon', 'afternoon', 'afternoon']
-	for n, s, e, d in zip(practice_names, practice_starts, practice_ends, practice_designations):
-		practices.append(AthleticBlock(n, s, e, d))
+	for n, s, e, c, d in zip(practice_names, practice_starts, practice_ends, practice_capacities, practice_designations):
+		practices.append(AthleticBlock(n, s, e, c, d))
 
 	return practices
 
@@ -292,7 +364,71 @@ def parse_swimmers(cmd_args):
 
 	return swimmers
 
+def get_best_practice(swimmer, pull_list):
+	try:
+		if pull_list == 'po_morn_good':
+			to_return = swimmer.po_morn_good.pop()
+		elif pull_list == 'po_after_good':
+			to_return = swimmer.po_after_good.pop()
+		elif pull_list == 'po_morn':
+			to_return = swimmer.po_morn.pop()
+		else:
+			to_return = swimmer.po_after.pop()
+		return to_return
 
+	except Exception as e:
+		return None
+
+def pair_swimmers(practice_list, swimmer_list, prac_designation, ranking_list):
+	# determine which internal list to pull from
+	if prac_designation == 'morning' and ranking_list == 'good':
+		pull_list = 'po_morn_good'
+	elif prac_designation == 'morning' and ranking_list == 'anything':
+		pull_list = 'po_morn'
+	elif prac_designation == 'afternoon' and ranking_list == 'good':
+		pull_list = 'po_after_good'
+	else:
+		pull_list = 'po_after'
+	# create finished stack
+	finished_stack = []
+	while len(swimmer_list) != 0:
+		# pop unfinished swimmer
+		assigned = False
+		backtrack = False
+		focus_swimmer = swimmer_list.pop()
+		while not assigned:
+			# pop best practice
+			best_prac = get_best_practice(focus_swimmer, pull_list)
+			# if no more practices
+			while not best_prac:											# while loop and not if statement because Python doesn't have labelled breaks like Java :(
+				# restore available practices with deepcopy
+				focus_swimmer.restore(pull_list)
+				# push to unfinished stack
+				swimmer_list.append(focus_swimmer)
+				# pop finished swimmer
+				try:
+					focus_swimmer = finished_stack.pop()
+				except Exception as e:
+					# if no more finished swimmer, print impossible
+					raise Exception('This is impossible')
+				# unassign from most recent practice
+				focus_swimmer.unassign()
+				# continue from pop best practice
+				backtrack = True
+				break
+
+			# assign to practice if not backtrack
+			if backtrack:
+				backtrack = False
+				continue
+			assigned = best_prac.add(focus_swimmer)
+		focus_swimmer.append(finished)
+
+def main():
+	cmd_args = parse_args()
+	practices = create_practices()
+	swimmers = parse_swimmers(cmd_args)
+	pair_swimmers(practices, swimmers, 'afternoon', 'good')
 
 ######################################################################################################################################################
 ##############################										TEST CODE 											##############################
@@ -311,6 +447,12 @@ def divmod_test():
 			for key in s.practice_rankings:
 				print(key, s.practice_rankings[key])
 			print()
+			print('po_morn')
+			for i in s.po_morn:
+				print(i)
+			print('po_after')
+			for i in s.po_after:
+				print(i)
 	''' EXPECTED OUTPUT:
 	POS
 	early lift starts at 07:00:00 and ends at 08:00:00 -1
@@ -355,4 +497,4 @@ def object_tests():
 	print(f'{caleb.hasMorning()} {caleb.hasAllPractices()} should both be false')
 
 if __name__ == '__main__':
-	divmod_test()
+	main()
