@@ -13,3 +13,8 @@
 3. Recursively place Swimmers into Practices
 4. Output a CSV file of all "un-parsable" individuals
 5. Ouptut a CSV file of sorted swimmers
+
+## Instructions
+1. Get everybody to fill out a form with their practices.
+2. Format -> Last Name | class1 | class2 | class3 | class4 | class5 (if needed)
+3. Give CSV to Caleb (not Coach Caleb)
